@@ -1,0 +1,90 @@
+---
+title: "Tandem repeat analysis in Darevskia nairensis and D. valentini"
+author: " Pavel Nikitin"
+date: "20/05/2022"
+output: html_document
+---
+
+```{r setup, include=TRUE}
+require("knitr")
+opts_knit$set(root.dir = ".")
+knitr::opts_chunk$set(echo = TRUE)
+stringsAsFactors = F
+
+library(tidyverse)
+library(kableExtra)
+library(utils)
+require(scales)
+```
+
+## Filter repeat units
+
+Read in the tables with the tandem repeat units:
+
+```{r, include=T}
+tr.units.n = read.delim("../data/input/contigs/N_top10pc_tab_bycol.tsv", header = F, sep = "\t", stringsAsFactors = F) 
+names(tr.units.n) = c("contig", "length", "mean.coverage", "repr", "unit.seq")
+
+tr.units.v = read.delim("../data/input/contigs/V_top10pc_tab_bycol.tsv", header = F, sep = "\t", stringsAsFactors = F)
+names(tr.units.v) = c("contig", "length", "mean.coverage", "repr", "unit.seq")
+```
+
+```{r, include=T}
+tr.units.n <- tr.units.n %>%
+  mutate(unit.length = nchar(unit.seq))
+tr.units.v <- tr.units.v %>%
+  mutate(unit.length = nchar(unit.seq))
+```
+
+```{r, include=T}
+ggplot(tr.units.n, aes(x=unit.length)) +
+  geom_histogram(fill="#d73833", color="#d73833", bins = 40) +
+  theme_classic() +
+  theme(axis.title = element_text(size=15), axis.text = element_text(size = 15)) +
+  xlab(expression('a) Длина мономеров тандемных повторов' ~italic('D. raddei nairensis'))) +
+  ylab("Количество") +
+  scale_x_continuous(limits = c(0, 200), breaks = scales::pretty_breaks(n = 10)) +
+  scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x)),
+              limits = c(1,1e3))
+```
+
+```{r, include=T}
+ggplot(tr.units.v, aes(x=unit.length)) +
+  geom_histogram(fill="#6a994e", color="#6a994e", bins = 40) +
+  theme_classic() +
+  theme(axis.title = element_text(size=15), axis.text = element_text(size = 15)) +
+  xlab(expression('б) Длина мономеров тандемных повторов' ~italic('D. valentini'))) +
+  ylab("Количество") +
+  scale_x_continuous(limits = c(0, 200), breaks = scales::pretty_breaks(n = 10)) +
+  scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x)),
+              limits = c(1,1e3))
+
+```
+
+```{r, include=T}
+tr.units.n <- tr.units.n %>%
+  mutate(unit.length.norm = unit.length / mean.coverage)
+tr.units.v <- tr.units.v %>%
+  mutate(unit.length.norm = unit.length / mean.coverage)
+```
+
+```{r, include=T}
+ggplot(tr.units.n, aes(x=unit.length.norm)) +
+  geom_histogram(fill="#d73833", color="#d73833", bins = 30) +
+  theme_classic() +
+  xlab(expression('a) Длина единиц тандемных повторов' ~italic('D. raddei nairensis'))) +
+  ylab("Количество повторов, отнесённое к покрытию контигов,\nиз которых они пришли")
+```
+
+```{r, include=T}
+ggplot(tr.units.v, aes(x=unit.length.norm)) +
+  geom_histogram(fill="#6a994e", color="#6a994e", bins = 30) +
+  theme_classic() +
+  xlab(expression('б) Длина единиц тандемных повторов' ~italic('D. valentini'))) +
+  ylab("Количество повторов, отнесённое к покрытию контигов,\nиз которых они пришли")
+```
+
+```{r, include=T}
+```

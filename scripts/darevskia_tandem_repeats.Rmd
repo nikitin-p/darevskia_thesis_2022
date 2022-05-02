@@ -1,0 +1,291 @@
+---
+title: "Tandem repeat analysis in Darevskia nairensis and D. valentini"
+author: "Sviatoslav Sidorov, Pavel Nikitin"
+date: "11/11/2020"
+output: html_document
+---
+
+## Already found probes
+V1 - 5′ GCCCCACAAATAACCCAGAGATGCATTTTA
+V2 - 5′ TGTCACGCGTCCATGGAGATCCACGTGATG
+
+N1 - 5' AGAAAATCAGGCCTCGGCAACTACACCTGC
+N2 - 5' CAGGTCGAAATGCATAGAAAACACACCAGC
+N3 - 5' GACGTACTTGGCTTTTGTAACGTTCAATTT
+
+```{r setup, include=TRUE}
+require("knitr")
+opts_knit$set(root.dir = ".")
+knitr::opts_chunk$set(echo = TRUE)
+stringsAsFactors = F
+
+library(tidyverse)
+library(kableExtra)
+library(utils)
+```
+
+## Filter repeat units
+
+Read in the tables with the tandem repeat units:
+
+```{r, include=T}
+tr.units.n = read.delim("../data/input/contigs/N_top10pc_tab_bycol.tsv", header = F, sep = "\t", stringsAsFactors = F) 
+names(tr.units.n) = c("contig", "length", "mean.coverage", "repr", "unit.seq")
+
+tr.units.v = read.delim("../data/input/contigs/V_top10pc_tab_bycol.tsv", header = F, sep = "\t", stringsAsFactors = F)
+names(tr.units.v) = c("contig", "length", "mean.coverage", "repr", "unit.seq")
+```
+
+Filter the repeat units:
+
+```{r, include=T}
+# Use the following commented code when removing probes that have polyA/C/G/T runs of length >=6
+  # dplyr::filter(!stringr::str_detect(unit.seq, "AAAAAA")) %>%
+  # dplyr::filter(!stringr::str_detect(unit.seq, "TTTTTT")) %>%
+  # dplyr::filter(!stringr::str_detect(unit.seq, "GGGGGG")) %>%
+  # dplyr::filter(!stringr::str_detect(unit.seq, "CCCCCC")) %>%
+  
+tr.units.n = tr.units.n %>%
+  dplyr::arrange(unit.seq) %>%
+  dplyr::filter(nchar(unit.seq) > 6) %>% # Do this filtering further down instead (on the level of probes)
+  group_by(unit.seq) %>%
+  do(dplyr::arrange(., desc(.$mean.coverage))) %>%
+  do(head(., 1)) %>%
+  ungroup()
+
+tr.units.v = tr.units.v %>%
+  dplyr::arrange(unit.seq) %>%
+  dplyr::filter(nchar(unit.seq) > 6) %>% # Do this filtering further down instead (on the level of probes)
+  group_by(unit.seq) %>%
+  do(dplyr::arrange(., desc(.$mean.coverage))) %>%
+  do(head(., 1)) %>%
+  ungroup()
+```
+
+## Find the most species-specific repeat units
+
+Calculate the Levenshteine distance between all K-bp substrings from the repeat units of _D. nairensis_ and _D. valentini_:
+
+```{r, include=T}
+probe.length = 30
+
+take_all_substrings = function(s, k) {
+  if (nchar(s) < k) {
+    s = paste0(rep(s, k %/% nchar(s) + 1), collapse = '')
+  }
+  return(unlist(purrr::map(1:(nchar(s) - k + 1), 
+                             function(i) stringr::str_sub(s, i, i + k - 1))))
+}
+
+generate_substring_df = function(x, k) {
+  s = x[1, "unit.seq"]
+  df = data.frame(probe.seq = take_all_substrings(s, k),
+                  stringsAsFactors = FALSE)
+  df$contig = x$contig
+  df$length = x$length
+  df$mean.coverage = x$mean.coverage
+  df$repr = x$repr
+  return(df)
+}
+
+rm_microsatellites = function(probe.seq) {
+  for(unit.length in 2:6) {
+    unit.num = 6 - unit.length + 2
+    coord.last = probe.length - unit.num * unit.length + 1
+    delta.seq = seq(0, unit.length * (unit.num - 1), by = unit.length)
+    for(coord in 1:coord.last) {
+      unique.units = unique(
+        unlist(
+        lapply(delta.seq, function(delta) {
+        stringr::str_sub(probe.seq, coord + delta, coord + delta + unit.length - 1)
+      })))
+      if (length(unique.units) == 1) {
+        return(FALSE)
+      }
+    }
+  }
+  return(TRUE)
+}
+
+# Generating probes
+tr.probes.n = tr.units.n %>%
+  group_by(contig, unit.seq) %>%
+  do(generate_substring_df(., probe.length)) %>%
+  ungroup() %>%
+  distinct() %>%
+  group_by(probe.seq, contig) %>%
+  dplyr::filter(!stringr::str_detect(probe.seq, "AAAAAA")) %>%
+  dplyr::filter(!stringr::str_detect(probe.seq, "TTTTTT")) %>%
+  dplyr::filter(!stringr::str_detect(probe.seq, "GGGGGG")) %>%
+  dplyr::filter(!stringr::str_detect(probe.seq, "CCCCCC")) %>%
+  dplyr::filter(rm_microsatellites(probe.seq)) %>%
+  ungroup()
+
+tr.probes.v = tr.units.v %>%
+  group_by(contig, unit.seq) %>%
+  do(generate_substring_df(., probe.length)) %>%
+  ungroup() %>%
+  distinct() %>%
+  group_by(probe.seq, contig) %>%
+  dplyr::filter(!stringr::str_detect(probe.seq, "AAAAAA")) %>%
+  dplyr::filter(!stringr::str_detect(probe.seq, "TTTTTT")) %>%
+  dplyr::filter(!stringr::str_detect(probe.seq, "GGGGGG")) %>%
+  dplyr::filter(!stringr::str_detect(probe.seq, "CCCCCC")) %>%
+  dplyr::filter(rm_microsatellites(probe.seq)) %>%
+  ungroup()
+
+write.table(tr.probes.n, file="../data/results/tr_probes/tr_probes_n.tsv", quote = FALSE, sep = "\t", row.names = FALSE)
+write.table(tr.probes.v, file="../data/results/tr_probes/tr_probes_v.tsv", quote = FALSE, sep = "\t", row.names = FALSE)
+
+# Generate tables with all possible probes from N (done) and V
+# From each repeat unit, take only distinct probes (done)
+# Filter out probes that fully or partially consist of microsatellites or have polyA/C/G/T runs of length >=6 (done)
+# Calculate Levenshtein distance for the remaining probes pairwise 
+
+# Reshape the following commented code to calculate Levenshteine distance between probes instead of the whole repeats
+
+# names(tr.probes.n) = c("unit.seq.n", "probe.seq.n", "contig.n", "length.n", "mean.coverage.n", "repr.n")
+# names(tr.probes.v) = c("unit.seq.v", "probe.seq.v","contig.v", "length.v", "mean.coverage.v", "repr.v")
+# tr.probes.n$dummy.col = 1
+# tr.probes.v$dummy.col = 1
+# tr.probes.all = tr.probes.n %>%
+#   inner_join(tr.probes.v, by = ("dummy.col" = "dummy.col")) %>%
+#   group_by(contig.n, probe.seq.n, contig.v, probe.seq.v) %>%
+#   dplyr::mutate(edit.dist = utils::adist(probe.seq.n, probe.seq.v)) %>%
+#   ungroup() %>%
+#   dplyr::select(-dummy.col)
+```
+
+```{r, include=T}
+tr.probes.n = read.delim("../data/results/tr_probes/tr_probes_n.tsv", header = T, sep = "\t", stringsAsFactors = F) 
+tr.probes.v = read.delim("../data/results/tr_probes/tr_probes_v.tsv", header = T, sep = "\t", stringsAsFactors = F)
+
+names(tr.probes.n) = c("unit.seq.n", "probe.seq.n", "contig.n", "length.n", "mean.coverage.n", "repr.n")
+names(tr.probes.v) = c("unit.seq.v", "probe.seq.v","contig.v", "length.v", "mean.coverage.v", "repr.v")
+
+tr.probes.v %>%
+  dplyr::filter(contig.v == "CL4Contig833" & probe.seq.v == "AGGGAATATCAGCTCATTGATTCTGCTTCA")
+
+tr.probes.n$dummy.col = 1
+tr.probes.v$dummy.col = 1
+tr.probes.all = tr.probes.n %>%
+  inner_join(tr.probes.v, by = ("dummy.col" = "dummy.col")) %>%
+  #dplyr::filter(contig.n == "CL1019Contig1" & probe.seq.n == "ACTAACAGAGTAGACTAACAGAGTAGACTA" & contig.v == "CL1026Contig1" & probe.seq.v == "ACTCGAGGGGCCAATGTGGCCGACTCGAGG")
+  #dplyr::filter(contig.n == "CL1019Contig1" & probe.seq.n == "ACTAACAGAGTAGACTAACAGAGTAGACTA" & contig.v == "CL4Contig833" & probe.seq.v == "AGGGAATATCAGCTCATTGATTCTGCTTCA")
+  
+  # group_by(unit.seq.n, contig.n, probe.seq.n, unit.seq.v, contig.v, probe.seq.v) %>%%>%
+  # dplyr::mutate(edit.dist = utils::adist(probe.seq.n, probe.seq.v)) %>%
+  # ungroup() %>%
+  # dplyr::select(-dummy.col)
+```
+
+Creating test data set while the script is running
+```{r, include=T}
+tr.probes.n = read.delim("../data/results/tr_probes/tr_probes_n.tsv", header = T, sep = "\t", stringsAsFactors = F)
+tr.probes.v = read.delim("../data/results/tr_probes/tr_probes_v.tsv", header = T, sep = "\t", stringsAsFactors = F)
+
+tr.probes.head.n = head(tr.probes.n, 50)
+tr.probes.head.v = head(tr.probes.v, 50)
+
+names(tr.probes.head.n) = c("unit.seq.n", "probe.seq.n", "contig.n", "length.n", "mean.coverage.n", "repr.n")
+names(tr.probes.head.v) = c("unit.seq.v", "probe.seq.v","contig.v", "length.v", "mean.coverage.v", "repr.v")
+
+tr.probes.head.n$dummy.col = 1
+tr.probes.head.v$dummy.col = 1
+tr.probes.head.all = tr.probes.head.n %>%
+  inner_join(tr.probes.head.v, by = ("dummy.col" = "dummy.col")) %>%
+  group_by(unit.seq.n, contig.n, probe.seq.n, unit.seq.v, contig.v, probe.seq.v) %>%
+  dplyr::mutate(edit.dist = utils::adist(probe.seq.n, probe.seq.v)) %>%
+  ungroup() %>%
+  dplyr::select(-dummy.col)
+
+#Analysing test data
+tr.probes.head.min.all = tr.probes.head.all %>%
+  group_by(probe.seq.n) %>%
+  mutate(min.dist.n = min(edit.dist)) %>%
+  ungroup() %>%
+  group_by(probe.seq.v) %>%
+  mutate(min.dist.v = min(edit.dist)) %>%
+  ungroup() %>%
+  group_by(probe.seq.n) %>%
+  mutate(min.n = (edit.dist == min.dist.n)) %>%
+  ungroup() %>%
+  group_by(probe.seq.v) %>%
+  mutate(min.v = (edit.dist == min.dist.v)) %>%
+  ungroup()
+
+#For D Nairensis
+tr.probes.n.arranged = tr.probes.head.min.all %>%
+  filter(min.n) %>%
+  dplyr::arrange(desc(edit.dist))
+
+write.table(tr.probes.n.arranged,
+            "../data/results/N_tr_probes_by_distance_test.tsv",
+            quote = F,
+            sep = "\t",
+            row.names = F)
+
+kable(tr.probes.n.arranged %>%
+  head(10)) %>%
+kable_styling(bootstrap_options = c("striped", "hover")) %>%
+  scroll_box(width = "100%")
+```
+
+```{r, include=T}
+tr.probes.dist.geq10.n = read.delim("../data/results/tr_probes_all_min_dist_N.tsv", header = T, sep = "\t", stringsAsFactors = F) %>%
+  dplyr::arrange(desc(mean.coverage.n))
+tr.probes.dist.geq10.v = read.delim("../data/results/tr_probes_all_min_dist_V.tsv", header = T, sep = "\t", stringsAsFactors = F)%>%
+  dplyr::arrange(desc(mean.coverage.v))
+
+# tr.probes.dist.geq10.n %>%
+#   dplyr::filter(probe.seq.n == 'GACGTACTTGGCTTTTGTAACGTTCAATTT')
+```
+
+¡Haven't yet used the code below:
+
+Generate tables of repeat units, arranged by distance, for _D. nairensis_ and for _D. valentini_.
+
+For _D. nairensis_:
+
+```{r, include=T}
+tr.units.n.arranged = tr.units.all %>%
+  filter(min.n) %>%
+  dplyr::select(contig.n, mean.coverage.n, unit.seq.n, edit.dist) %>%
+  dplyr::arrange(desc(edit.dist)) %>%
+  distinct()
+
+write.table(tr.units.n.arranged,
+            "data/results/N_tr_units_by_distance.tsv",
+            quote = F,
+            sep = "\t",
+            row.names = F)
+
+kable(tr.units.n.arranged %>%
+  head(10)) %>%
+kable_styling(bootstrap_options = c("striped", "hover")) %>%
+  scroll_box(width = "100%")
+```
+
+For _D. valentini_:
+
+```{r, include=T}
+tr.units.v.arranged = tr.units.all %>%
+  filter(min.v) %>%
+  dplyr::select(contig.v, mean.coverage.v, unit.seq.v, edit.dist) %>%
+  dplyr::arrange(desc(edit.dist)) %>%
+  distinct()
+
+write.table(tr.units.v.arranged,
+            "data/results/V_tr_units_by_distance.tsv",
+            quote = F,
+            sep = "\t",
+            row.names = F)
+
+kable(tr.units.v.arranged %>%
+  head(10)) %>%
+kable_styling(bootstrap_options = c("striped", "hover")) %>%
+  scroll_box(width = "100%")
+```
+
+```{r, include=T}
+```
